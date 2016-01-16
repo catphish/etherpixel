@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+void ns_sleep();
+
 #define CONFIG_TX_DESCR_NUM   16
 #define CONFIG_RX_DESCR_NUM   16
 #define CONFIG_ETH_BUFSIZE    2048
@@ -62,6 +64,9 @@
 // The DRAM base address.
 #define DRAM_BASE 0x40000000
 
+// The DRAM base address.
+#define SRAM_BASE 0x00020000
+
 static unsigned char ip_address[4]  = { 192, 168, 88, 5 };
 static unsigned char mac_address[6] = { 2,3,4,5,6,7 };
 
@@ -70,6 +75,24 @@ struct ether_hdr {
   volatile char dst_mac[6];
   volatile char src_mac[6];
   volatile uint16_t ethertype;
+};
+
+// Structure representing an Ethernet frame header
+struct ip_udp_hdr {
+  volatile unsigned char ip_v:4, ip_hl:4;
+  volatile unsigned char ip_tos;
+  volatile unsigned short int ip_len;
+  volatile unsigned short int ip_id;
+  volatile unsigned short int ip_off;
+  volatile unsigned char ip_ttl;
+  volatile unsigned char ip_protocol;
+  volatile unsigned short int ip_sum;
+  volatile unsigned char ip_src[4];
+  volatile unsigned char ip_dst[4];
+  volatile unsigned short int udp_sport;
+  volatile unsigned short int udp_dport;
+  volatile unsigned short int udp_length;
+  volatile unsigned short int udp_checksum;
 };
 
 struct arp_hdr {
@@ -262,12 +285,62 @@ void gmac_init()
   GMAC_CONTROL   = GMAC_CONTROL | FULLDUPLEX | LINKUP;
 }
 
+void handle_ip_packet(volatile void * frame)
+{
+  unsigned int n;
+  volatile struct ip_udp_hdr *header = frame + 14;
+    if(header->ip_dst[0] == ip_address[0] && header->ip_dst[1] == ip_address[1] && header->ip_dst[2] == ip_address[2] && header->ip_dst[3] == ip_address[3])
+    {
+      switch(header->ip_protocol)
+      {
+        case(0x11):
+          if(__builtin_bswap16(header->udp_dport) == 8888)
+          {
+            volatile unsigned char *data = frame + 14 + 20 + 8;
+            uint32_t length = __builtin_bswap16(header->udp_length) - 8;
+            if(length <=1200)
+            {
+              uart_print("Received data: ");
+              unsigned int mask;
+              for(n=0;n<length;n++)
+              {
+                for (mask = 0x80; mask != 0; mask >>= 1) {
+                  if (data[n] & mask) {
+                    // High
+                    ns_sleep();
+                    ns_sleep();
+                    // One Low
+                    ns_sleep();
+                  } else {
+                    // High
+                    ns_sleep();
+                    // Zero low
+                    ns_sleep();
+                    ns_sleep();
+                  }
+                }
+              }
+            } else {
+              uart_print("Data too large.");
+            }
+          } else {
+            uart_print("Ignoring UDP packet not on port 8888.");
+          }
+          break;
+        default:
+        uart_print("Ignoring non-UDP packet.");
+      }
+    } else {
+      uart_print("Ignoring packet for non-local IP.");
+    }
+}
+
 void handle_arp_frame(volatile void * frame)
 {
   int n;
   volatile struct ether_hdr *frame_hdr = frame;
   volatile struct arp_hdr *arp_request = frame + 14;
-  if (arp_request->oper == 0x0100)
+  if (__builtin_bswap16(arp_request->oper) == 1)
   {
     if(arp_request->tpa[0] == ip_address[0] && arp_request->tpa[1] == ip_address[1] && arp_request->tpa[2] == ip_address[2] && arp_request->tpa[3] == ip_address[3])
     {
@@ -279,12 +352,12 @@ void handle_arp_frame(volatile void * frame)
         reply_hdr->dst_mac[n] = frame_hdr->src_mac[n];
       for(n=0;n<6;n++)
         reply_hdr->src_mac[n] = mac_address[n];
-      reply_hdr->ethertype = 0x0608;
-      arp_response->htype = 0x0100;
-      arp_response->ptype = 0x0008;
-      arp_response->hlen  = 6;
-      arp_response->plen  = 4;
-      arp_response->oper  = 0x0200;
+      reply_hdr->ethertype = __builtin_bswap16(0x0806);
+      arp_response->htype  = __builtin_bswap16(1);
+      arp_response->ptype  = __builtin_bswap16(0x0800);
+      arp_response->hlen   = 6;
+      arp_response->plen   = 4;
+      arp_response->oper   = __builtin_bswap16(2);
       for(n=0;n<6;n++)
         arp_response->sha[n] = mac_address[n];
       for(n=0;n<6;n++)
@@ -319,15 +392,16 @@ void receive_frame()
   while(desc_p->txrx_status & DESC_RXSTS_OWNBYDMA);
 
   // Network byte order inverted.
-  switch(frame_hdr->ethertype)
+  switch(__builtin_bswap16(frame_hdr->ethertype))
   {
-    case 0x0608:
+    case 0x0806:
       uart_print("ARP frame received... ");
       handle_arp_frame(desc_p->dmamac_addr);
       uart_print("\r\n");
       break;
-    case 0x0008:
+    case 0x0800:
       uart_print("IP frame received... ");
+      handle_ip_packet(desc_p->dmamac_addr);
       uart_print("\r\n");
       break;
     default:
@@ -362,11 +436,3 @@ void kernel_main(uint32_t r0, uint32_t r1, uint32_t atags)
     receive_frame();
   }
 }
-
-// 1 second loop
-// while(1)
-// {
-//   uint32_t count = 120069640;
-//   asm volatile("ds: subs %0, #1; bne ds;" : "=r"(count) : "r"(count) : );
-//   uart_print("Looping...\r\n");
-// }
