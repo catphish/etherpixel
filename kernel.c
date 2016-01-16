@@ -61,6 +61,12 @@ void ns_sleep();
 #define GDMA_BUS_MODE     *(volatile uint32_t *)(GMAC_BASE + 0x1000)
 #define GDMA_OPERATION    *(volatile uint32_t *)(GMAC_BASE + 0x1018)
 
+// The PORT registers base address.
+#define PORT_BASE         0x01C20800
+// Macros to access GMAC registers.
+#define PB_CFG1           *(volatile uint32_t *)(PORT_BASE + 0x28)
+#define PB_DATA           *(volatile uint32_t *)(PORT_BASE + 0x34)
+
 // The DRAM base address.
 #define DRAM_BASE 0x40000000
 
@@ -306,20 +312,21 @@ void handle_ip_packet(volatile void * frame)
               {
                 for (mask = 0x80; mask != 0; mask >>= 1) {
                   if (data[n] & mask) {
-                    // High
+                    PB_DATA = 1<<8;
                     ns_sleep();
                     ns_sleep();
-                    // One Low
+                    PB_DATA = 0;
                     ns_sleep();
                   } else {
-                    // High
+                    PB_DATA = 1<<8;
                     ns_sleep();
-                    // Zero low
+                    PB_DATA = 0;
                     ns_sleep();
                     ns_sleep();
                   }
                 }
               }
+
             } else {
               uart_print("Data too large.");
             }
@@ -430,6 +437,8 @@ void kernel_main(uint32_t r0, uint32_t r1, uint32_t atags)
   uart_init();
   uart_print("Booting...\r\n");
   gmac_init();
+  // Enable PB8 as output
+  PB_CFG1 = 1;
 
   while ( true )
   {
