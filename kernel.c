@@ -66,8 +66,15 @@ void ns_sleep();
 // The PORT registers base address.
 #define PORT_BASE         0x01C20800
 // Macros to access GMAC registers.
+#define PB_CFG0           *(volatile uint32_t *)(PORT_BASE + 0x24)
 #define PB_CFG1           *(volatile uint32_t *)(PORT_BASE + 0x28)
+#define PB_CFG2           *(volatile uint32_t *)(PORT_BASE + 0x2C)
 #define PB_DATA           *(volatile uint32_t *)(PORT_BASE + 0x34)
+
+#define PI_CFG0           *(volatile uint32_t *)(PORT_BASE + 0x120)
+#define PI_CFG1           *(volatile uint32_t *)(PORT_BASE + 0x124)
+#define PI_CFG2           *(volatile uint32_t *)(PORT_BASE + 0x128)
+#define PI_DATA           *(volatile uint32_t *)(PORT_BASE + 0x130)
 
 // The DRAM base address.
 #define DRAM_BASE 0x40000000
@@ -89,6 +96,7 @@ struct led_strip {
 };
 
 struct led_strip *led_data = (void*)(SRAM_BASE);
+
 
 // Structure representing an Ethernet frame header
 struct ether_hdr {
@@ -147,7 +155,7 @@ unsigned char rx_idx = 0;
 unsigned char tx_idx = 0;
 
 // Copy some bytes
-void memcpy(void* dst, volatile void* src, unsigned int length)
+void memcpy_32(void* dst, volatile void* src, unsigned int length)
 {
   length = length / 4;
   uint32_t n;
@@ -337,7 +345,7 @@ void handle_ip_packet(volatile void * frame)
               // Find the bank we're working with
               bank = led_data + data[0];
               // Copy the UDP data into the bank
-              memcpy((void*)bank, data+2, length-2);
+              memcpy_32((void*)bank, data+2, length-2);
 
               // Should we commit this to the serial ports?
               if(data[1])
@@ -363,10 +371,13 @@ void handle_ip_packet(volatile void * frame)
 
                     // Push one bit to all banks simultaneously
                     PB_DATA = 0xFFFFFFFF;
+                    PI_DATA = 0xFFFFFFFF;
                     ns_sleep();
                     PB_DATA = bitmap;
+                    PI_DATA = bitmap;
                     ns_sleep();
                     PB_DATA = 0;
+                    PI_DATA = 0;
                   }
                 }
               }
@@ -482,8 +493,14 @@ void kernel_main(uint32_t r0, uint32_t r1, uint32_t atags)
   uart_init();
   uart_print("Booting...\r\n");
   gmac_init();
-  // Enable PB8 as output
-  PB_CFG1 = 1;
+  // Enable PORTB as outputs
+  PB_CFG0 = 0x11111111;
+  PB_CFG1 = 0x11111111;
+  PB_CFG2 = 0x22111111;
+  // Enable PORTI as outputs
+  PI_CFG0 = 0x11111111;
+  PI_CFG1 = 0x11111111;
+  PI_CFG2 = 0x11111111;
 
   while ( true )
   {
