@@ -6,10 +6,12 @@
 
 void ns_sleep();
 
-#define CONFIG_TX_DESCR_NUM   16
-#define CONFIG_RX_DESCR_NUM   16
+#define CONFIG_TX_DESCR_NUM   64
+#define CONFIG_RX_DESCR_NUM   64
 #define CONFIG_ETH_BUFSIZE    2048
 
+#define NUMBER_OF_BANKS       16
+#define SIZE_OF_BANK          360
 #define CONFIG_DW_GMAC_DEFAULT_DMA_PBL 8
 #define DMA_PBL               (CONFIG_DW_GMAC_DEFAULT_DMA_PBL<<8)
 #define TX_TOTAL_BUFSIZE      (CONFIG_ETH_BUFSIZE * CONFIG_TX_DESCR_NUM)
@@ -70,11 +72,23 @@ void ns_sleep();
 // The DRAM base address.
 #define DRAM_BASE 0x40000000
 
-// The DRAM base address.
+// The SRAM B base address.
 #define SRAM_BASE 0x00020000
 
 static unsigned char ip_address[4]  = { 192, 168, 88, 5 };
 static unsigned char mac_address[6] = { 2,3,4,5,6,7 };
+
+struct rgb {
+  char green;
+  char red;
+  char blue;
+};
+
+struct led_strip {
+  struct rgb led[SIZE_OF_BANK];
+};
+
+struct led_strip *led_data = (void*)(SRAM_BASE);
 
 // Structure representing an Ethernet frame header
 struct ether_hdr {
@@ -124,13 +138,26 @@ struct dmamacdescr {
 
 // Set up some pointers to locations in DRAM for GMAC DMA
 volatile char *txbuf = (void*)(DRAM_BASE + 0x0);
-volatile char *rxbuf = (void*)(DRAM_BASE + 0x8000);
+volatile char *rxbuf = (void*)(DRAM_BASE + CONFIG_TX_DESCR_NUM * CONFIG_ETH_BUFSIZE);
 volatile struct dmamacdescr *tx_mac_descrtable = (void*)(DRAM_BASE + 0x10000);
-volatile struct dmamacdescr *rx_mac_descrtable = (void*)(DRAM_BASE + 0x10100);
+volatile struct dmamacdescr *rx_mac_descrtable = (void*)(DRAM_BASE + 0x10000 + 16*CONFIG_TX_DESCR_NUM);
 
 // Current CPU position in DMA pointers
 unsigned char rx_idx = 0;
 unsigned char tx_idx = 0;
+
+// Copy some bytes
+void memcpy(void* dst, volatile void* src, unsigned int length)
+{
+  length = length / 4;
+  uint32_t n;
+  uint32_t *d = dst;
+  volatile uint32_t *s = src;
+  for(n=0;n<length;n++)
+  {
+    d[n] = s[n];
+  }
+}
 
 // The length of a null terminated string
 size_t strlen(const char* str)
@@ -293,7 +320,8 @@ void gmac_init()
 
 void handle_ip_packet(volatile void * frame)
 {
-  unsigned int n;
+  struct led_strip *bank;
+
   volatile struct ip_udp_hdr *header = frame + 14;
     if(header->ip_dst[0] == ip_address[0] && header->ip_dst[1] == ip_address[1] && header->ip_dst[2] == ip_address[2] && header->ip_dst[3] == ip_address[3])
     {
@@ -304,41 +332,57 @@ void handle_ip_packet(volatile void * frame)
           {
             volatile unsigned char *data = frame + 14 + 20 + 8;
             uint32_t length = __builtin_bswap16(header->udp_length) - 8;
-            if(length <=1200)
+            if(length <= 1202 && length > 2)
             {
-              uart_print("Received data: ");
-              unsigned int mask;
-              for(n=0;n<length;n++)
+              // Find the bank we're working with
+              bank = led_data + data[0];
+              // Copy the UDP data into the bank
+              memcpy((void*)bank, data+2, length-2);
+
+              // Should we commit this to the serial ports?
+              if(data[1])
               {
-                for (mask = 0x80; mask != 0; mask >>= 1) {
-                  if (data[n] & mask) {
-                    PB_DATA = 1<<8;
+                unsigned int current_byte;
+                // Loop through each byte in a bank
+                for(current_byte=0;current_byte<(3*SIZE_OF_BANK);current_byte++)
+                {
+                  unsigned int mask;
+                  // Loop through each bit in the active byte
+                  for (mask = 0x80; mask != 0; mask >>= 1)
+                  {
+                    // Create a bitmap using one bit from each bank
+                    unsigned int bitmap = 0;
+                    unsigned int bank_number;
+                    for(bank_number=0;bank_number<NUMBER_OF_BANKS;bank_number++)
+                    {
+                      struct led_strip *bank = led_data + bank_number;
+                      unsigned char* bank_data = (unsigned char*)bank;
+                      if(bank_data[current_byte] & mask)
+                        bitmap |= (1 << bank_number);
+                    }
+
+                    // Push one bit to all banks simultaneously
+                    PB_DATA = 0xFFFFFFFF;
                     ns_sleep();
+                    PB_DATA = bitmap;
                     ns_sleep();
                     PB_DATA = 0;
-                    ns_sleep();
-                  } else {
-                    PB_DATA = 1<<8;
-                    ns_sleep();
-                    PB_DATA = 0;
-                    ns_sleep();
-                    ns_sleep();
                   }
                 }
               }
 
             } else {
-              uart_print("Data too large.");
+              uart_print("UDP Data too large or too small.\r\n");
             }
           } else {
-            uart_print("Ignoring UDP packet not on port 8888.");
+            uart_print("Ignoring UDP packet not on port 8888.\r\n");
           }
           break;
         default:
-        uart_print("Ignoring non-UDP packet.");
+        uart_print("Ignoring non-UDP packet.\r\n");
       }
     } else {
-      uart_print("Ignoring packet for non-local IP.");
+      uart_print("Ignoring packet for non-local IP.\r\n");
     }
 }
 
@@ -407,9 +451,9 @@ void receive_frame()
       uart_print("\r\n");
       break;
     case 0x0800:
-      uart_print("IP frame received... ");
+      //uart_print("IP frame received... ");
       handle_ip_packet(desc_p->dmamac_addr);
-      uart_print("\r\n");
+      //uart_print("\r\n");
       break;
     default:
       uart_print("Unknown ethertype received!\r\n");
@@ -434,6 +478,7 @@ void kernel_main(uint32_t r0, uint32_t r1, uint32_t atags)
   (void) r1;
   (void) atags;
 
+  memset(led_data, 0, NUMBER_OF_BANKS*SIZE_OF_BANK*3);
   uart_init();
   uart_print("Booting...\r\n");
   gmac_init();
