@@ -340,45 +340,137 @@ void handle_ip_packet(volatile void * frame)
           {
             volatile unsigned char *data = frame + 14 + 20 + 8;
             uint32_t length = __builtin_bswap16(header->udp_length) - 8;
-            if(length <= 1202 && length > 2)
+            if(length <= (SIZE_OF_BANK*3+2) && length > 2)
             {
               // Find the bank we're working with
               bank = led_data + data[0];
-              // Copy the UDP data into the bank
+              // Copy the UDP data into the bank.
+              // Warning: this relies on LEDs always being in multiples of 4
+              // No good for a single strip of 30
               memcpy_32((void*)bank, data+2, length-2);
 
               // Should we commit this to the serial ports?
               if(data[1])
               {
                 unsigned int current_byte;
-                // Loop through each byte in a bank
+                unsigned char bank_number;
+                // Loop through each possible byte in the input (3 bytes per LED)
                 for(current_byte=0;current_byte<(3*SIZE_OF_BANK);current_byte++)
                 {
-                  unsigned int mask;
-                  // Loop through each bit in the active byte
-                  for (mask = 0x80; mask != 0; mask >>= 1)
-                  {
-                    // Create a bitmap using one bit from each bank
-                    unsigned int bitmap = 0;
-                    unsigned int bank_number;
-                    for(bank_number=0;bank_number<NUMBER_OF_BANKS;bank_number++)
-                    {
-                      struct led_strip *bank = led_data + bank_number;
-                      unsigned char* bank_data = (unsigned char*)bank;
-                      if(bank_data[current_byte] & mask)
-                        bitmap |= (1 << bank_number);
-                    }
+                  // Each byte of input will result in 8 bitmaps
 
-                    // Push one bit to all banks simultaneously
-                    PB_DATA = 0xFFFFFFFF;
-                    PI_DATA = 0xFFFFFFFF;
-                    ns_sleep();
-                    PB_DATA = bitmap;
-                    PI_DATA = bitmap;
-                    ns_sleep();
-                    PB_DATA = 0;
-                    PI_DATA = 0;
+                  register uint32_t bitmaps0=0;
+                  register uint32_t bitmaps1=0;
+                  register uint32_t bitmaps2=0;
+                  register uint32_t bitmaps3=0;
+                  register uint32_t bitmaps4=0;
+                  register uint32_t bitmaps5=0;
+                  register uint32_t bitmaps6=0;
+                  register uint32_t bitmaps7=0;
+
+                  // Loop through each bank (LED strip)
+                  for(bank_number=0;bank_number<NUMBER_OF_BANKS;bank_number++)
+                  {
+                    struct led_strip *bank = led_data + bank_number;
+                    unsigned char byte = ((unsigned char*)bank)[current_byte];
+
+                    if(byte & 0x80)
+                      bitmaps0 |= (1 << bank_number);
+                    if(byte & 0x40)
+                      bitmaps1 |= (1 << bank_number);
+                    if(byte & 0x20)
+                      bitmaps2 |= (1 << bank_number);
+                    if(byte & 0x10)
+                      bitmaps3 |= (1 << bank_number);
+                    if(byte & 0x08)
+                      bitmaps4 |= (1 << bank_number);
+                    if(byte & 0x04)
+                      bitmaps5 |= (1 << bank_number);
+                    if(byte & 0x02)
+                      bitmaps6 |= (1 << bank_number);
+                    if(byte & 0x01)
+                      bitmaps7 |= (1 << bank_number);
                   }
+                  // Push one bit to all banks simultaneously
+                  PB_DATA = 0xFFFFFFFF;
+                  PI_DATA = 0xFFFFFFFF;
+                  ns_sleep();
+                  PB_DATA = bitmaps0;
+                  PI_DATA = bitmaps0;
+                  ns_sleep();
+                  PB_DATA = 0;
+                  PI_DATA = 0;
+                  ns_sleep();
+                  ns_sleep();
+                  PB_DATA = 0xFFFFFFFF;
+                  PI_DATA = 0xFFFFFFFF;
+                  ns_sleep();
+                  PB_DATA = bitmaps1;
+                  PI_DATA = bitmaps1;
+                  ns_sleep();
+                  PB_DATA = 0;
+                  PI_DATA = 0;
+                  ns_sleep();
+                  ns_sleep();
+                  PB_DATA = 0xFFFFFFFF;
+                  PI_DATA = 0xFFFFFFFF;
+                  ns_sleep();
+                  PB_DATA = bitmaps2;
+                  PI_DATA = bitmaps2;
+                  ns_sleep();
+                  PB_DATA = 0;
+                  PI_DATA = 0;
+                  ns_sleep();
+                  ns_sleep();
+                  PB_DATA = 0xFFFFFFFF;
+                  PI_DATA = 0xFFFFFFFF;
+                  ns_sleep();
+                  PB_DATA = bitmaps3;
+                  PI_DATA = bitmaps3;
+                  ns_sleep();
+                  PB_DATA = 0;
+                  PI_DATA = 0;
+                  ns_sleep();
+                  ns_sleep();
+                  PB_DATA = 0xFFFFFFFF;
+                  PI_DATA = 0xFFFFFFFF;
+                  ns_sleep();
+                  PB_DATA = bitmaps4;
+                  PI_DATA = bitmaps4;
+                  ns_sleep();
+                  PB_DATA = 0;
+                  PI_DATA = 0;
+                  ns_sleep();
+                  ns_sleep();
+                  PB_DATA = 0xFFFFFFFF;
+                  PI_DATA = 0xFFFFFFFF;
+                  ns_sleep();
+                  PB_DATA = bitmaps5;
+                  PI_DATA = bitmaps5;
+                  ns_sleep();
+                  PB_DATA = 0;
+                  PI_DATA = 0;
+                  ns_sleep();
+                  ns_sleep();
+                  PB_DATA = 0xFFFFFFFF;
+                  PI_DATA = 0xFFFFFFFF;
+                  ns_sleep();
+                  PB_DATA = bitmaps6;
+                  PI_DATA = bitmaps6;
+                  ns_sleep();
+                  PB_DATA = 0;
+                  PI_DATA = 0;
+                  ns_sleep();
+                  ns_sleep();
+                  PB_DATA = 0xFFFFFFFF;
+                  PI_DATA = 0xFFFFFFFF;
+                  ns_sleep();
+                  PB_DATA = bitmaps7;
+                  PI_DATA = bitmaps7;
+                  ns_sleep();
+                  PB_DATA = 0;
+                  PI_DATA = 0;
+                  ns_sleep();
                 }
               }
 
