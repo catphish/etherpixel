@@ -12,8 +12,8 @@
 // preserve these registers as argument for kernel_main
 _start:
 	// Setup the stack.
-	mov sp, #0x8000
- 
+	mov sp, #0x4000
+
 	// Clear out bss.
 	ldr r4, =__bss_start
 	ldr r9, =__bss_end

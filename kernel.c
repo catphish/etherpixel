@@ -10,7 +10,7 @@ void ns_sleep();
 #define CONFIG_RX_DESCR_NUM   64
 #define CONFIG_ETH_BUFSIZE    2048
 
-#define NUMBER_OF_BANKS       16
+#define NUMBER_OF_BANKS       32
 #define SIZE_OF_BANK          360
 #define CONFIG_DW_GMAC_DEFAULT_DMA_PBL 8
 #define DMA_PBL               (CONFIG_DW_GMAC_DEFAULT_DMA_PBL<<8)
@@ -62,6 +62,7 @@ void ns_sleep();
 #define GDMA_XMT_LIST     *(volatile uint32_t *)(GMAC_BASE + 0x1010)
 #define GDMA_BUS_MODE     *(volatile uint32_t *)(GMAC_BASE + 0x1000)
 #define GDMA_OPERATION    *(volatile uint32_t *)(GMAC_BASE + 0x1018)
+#define GDMA_MISSED_FRAME *(volatile uint32_t *)(GMAC_BASE + 0x1020)
 
 // The PORT registers base address.
 #define PORT_BASE         0x01C20800
@@ -145,10 +146,10 @@ struct dmamacdescr {
 };
 
 // Set up some pointers to locations in DRAM for GMAC DMA
-volatile char *txbuf = (void*)(DRAM_BASE + 0x0);
-volatile char *rxbuf = (void*)(DRAM_BASE + CONFIG_TX_DESCR_NUM * CONFIG_ETH_BUFSIZE);
-volatile struct dmamacdescr *tx_mac_descrtable = (void*)(DRAM_BASE + 0x10000);
-volatile struct dmamacdescr *rx_mac_descrtable = (void*)(DRAM_BASE + 0x10000 + 16*CONFIG_TX_DESCR_NUM);
+volatile char *txbuf = (void*)DRAM_BASE + 0x0;
+volatile char *rxbuf = (void*)DRAM_BASE + CONFIG_TX_DESCR_NUM * CONFIG_ETH_BUFSIZE;
+volatile struct dmamacdescr *tx_mac_descrtable = (void*)DRAM_BASE + (CONFIG_RX_DESCR_NUM+CONFIG_TX_DESCR_NUM) * CONFIG_ETH_BUFSIZE;
+volatile struct dmamacdescr *rx_mac_descrtable = (void*)DRAM_BASE + (CONFIG_RX_DESCR_NUM+CONFIG_TX_DESCR_NUM) * CONFIG_ETH_BUFSIZE + 16*CONFIG_TX_DESCR_NUM;
 
 // Current CPU position in DMA pointers
 unsigned char rx_idx = 0;
@@ -524,6 +525,10 @@ void handle_arp_frame(volatile void * frame)
       desc_tx->dmamac_cntl |= (((28+6+6+2) << DESC_TXCTRL_SIZE1SHFT) & DESC_TXCTRL_SIZE1MASK) | DESC_TXCTRL_TXLAST | DESC_TXCTRL_TXFIRST;
       desc_tx->txrx_status = DESC_TXSTS_OWNBYDMA;
       GDMA_XMT_POLL = 0xFFFFFFFF;
+      GDMA_XMT_POLL = 0xFFFFFFFF;
+      GDMA_XMT_POLL = 0xFFFFFFFF;
+      GDMA_XMT_POLL = 0xFFFFFFFF;
+
       tx_idx++;
       if(tx_idx >= CONFIG_TX_DESCR_NUM) tx_idx = 0;
     } else {
@@ -538,6 +543,8 @@ void handle_arp_frame(volatile void * frame)
 // Wait for an Ethernet frame to arrive and process it.
 void receive_frame()
 {
+  if(GDMA_MISSED_FRAME)
+    uart_print("Missed data!!!\r\n");
   // Get a pointer to the current RX descriptor and frame data
   volatile struct dmamacdescr *desc_p = rx_mac_descrtable + rx_idx;
   volatile struct ether_hdr *frame_hdr = desc_p->dmamac_addr;
@@ -581,6 +588,48 @@ void kernel_main(uint32_t r0, uint32_t r1, uint32_t atags)
   (void) r1;
   (void) atags;
 
+  // Populate the pagetable
+  int n;
+  for(n=0;n<4096;n++)
+  {
+    if(n==0)
+    {
+      // SRAM.  Outer and inner write back, write allocate.
+      //                                      BASE      TEX       AP        CB      SECTION
+      *(volatile uint32_t *)(0x4000 + n*4) = (n<<20) | (1<<12) | (3<<10) | (3<<2) | 2;
+      //*(volatile uint32_t *)(0x4000 + n*4) = 0;
+    } else if (n>=0x400 && n<0xc00) {
+      // DRAM. Outer and inner non-cacheable.
+      *(volatile uint32_t *)(0x4000 + n*4) = (n<<20) | (1<<12) | (3<<10) | (0<<2) | 2;
+    } else {
+      // Other stuff. Non-shared device.
+      *(volatile uint32_t *)(0x4000 + n*4) = (n<<20) | (2<<12) | (3<<10) | (0<<2) | 2;
+    }
+  }
+
+  // Set up the pagetable
+  asm("ldr r8, =0x4009; mcr p15, 0, r8, c2, c0, 0" : : : "r8");
+  asm("ldr r8, =0x0;    mcr p15, 0, r8, c2, c0, 2" : : : "r8");
+  asm("mov r8, #0x3;    mcr p15, 0, r8, c3, c0, 0" : : : "r8");
+
+  // Enable MMU
+  uint32_t a=0xffffffff;
+  asm(
+    "ldr %0, =0x0;"
+    "mcr p15, 0, %0, c1, c0, 0;"
+
+    "MCR p15, 0, %0, c8, C3, 0;"
+    "MCR p15, 0, %0, c8, C5, 0;"
+    "MCR p15, 0, %0, c8, C6, 0;"
+    "MCR p15, 0, %0, c8, C7, 0;"
+
+
+    "ldr %0, =0x4C5187F;"
+    "mcr p15, 0, %0, c1, c0, 0;"
+
+    : "=r"(a) : "r"(a) :);
+  uart_print_uint32(a);
+  uart_print("\r\n");
   memset(led_data, 0, NUMBER_OF_BANKS*SIZE_OF_BANK*3);
   uart_init();
   uart_print("Booting...\r\n");
