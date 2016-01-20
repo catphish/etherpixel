@@ -4,7 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-void ns_sleep();
+void ns_sleep_a();
+void ns_sleep_b();
+void ns_sleep_c();
 
 #define CONFIG_TX_DESCR_NUM   64
 #define CONFIG_RX_DESCR_NUM   64
@@ -395,84 +397,78 @@ void handle_ip_packet(volatile void * frame)
                   // Push one bit to all banks simultaneously
                   PB_DATA = 0xFFFFFFFF;
                   PI_DATA = 0xFFFFFFFF;
-                  ns_sleep();
+                  ns_sleep_a();
                   PB_DATA = bitmaps0;
                   PI_DATA = bitmaps0;
-                  ns_sleep();
+                  ns_sleep_b();
                   PB_DATA = 0;
                   PI_DATA = 0;
-                  ns_sleep();
-                  ns_sleep();
+                  ns_sleep_c();
                   PB_DATA = 0xFFFFFFFF;
                   PI_DATA = 0xFFFFFFFF;
-                  ns_sleep();
+                  ns_sleep_a();
                   PB_DATA = bitmaps1;
                   PI_DATA = bitmaps1;
-                  ns_sleep();
+                  ns_sleep_b();
                   PB_DATA = 0;
                   PI_DATA = 0;
-                  ns_sleep();
-                  ns_sleep();
+                  ns_sleep_c();
                   PB_DATA = 0xFFFFFFFF;
                   PI_DATA = 0xFFFFFFFF;
-                  ns_sleep();
+                  ns_sleep_a();
                   PB_DATA = bitmaps2;
                   PI_DATA = bitmaps2;
-                  ns_sleep();
+                  ns_sleep_b();
                   PB_DATA = 0;
                   PI_DATA = 0;
-                  ns_sleep();
-                  ns_sleep();
+                  ns_sleep_c();
                   PB_DATA = 0xFFFFFFFF;
                   PI_DATA = 0xFFFFFFFF;
-                  ns_sleep();
+                  ns_sleep_a();
                   PB_DATA = bitmaps3;
                   PI_DATA = bitmaps3;
-                  ns_sleep();
+                  ns_sleep_b();
                   PB_DATA = 0;
                   PI_DATA = 0;
-                  ns_sleep();
-                  ns_sleep();
+                  ns_sleep_c();
                   PB_DATA = 0xFFFFFFFF;
                   PI_DATA = 0xFFFFFFFF;
-                  ns_sleep();
+                  ns_sleep_a();
                   PB_DATA = bitmaps4;
                   PI_DATA = bitmaps4;
-                  ns_sleep();
+                  ns_sleep_b();
                   PB_DATA = 0;
                   PI_DATA = 0;
-                  ns_sleep();
-                  ns_sleep();
+                  ns_sleep_c();
                   PB_DATA = 0xFFFFFFFF;
                   PI_DATA = 0xFFFFFFFF;
-                  ns_sleep();
+                  ns_sleep_a();
                   PB_DATA = bitmaps5;
                   PI_DATA = bitmaps5;
-                  ns_sleep();
+                  ns_sleep_b();
                   PB_DATA = 0;
                   PI_DATA = 0;
-                  ns_sleep();
-                  ns_sleep();
+                  ns_sleep_c();
                   PB_DATA = 0xFFFFFFFF;
                   PI_DATA = 0xFFFFFFFF;
-                  ns_sleep();
+                  ns_sleep_a();
                   PB_DATA = bitmaps6;
                   PI_DATA = bitmaps6;
-                  ns_sleep();
+                  ns_sleep_b();
                   PB_DATA = 0;
                   PI_DATA = 0;
-                  ns_sleep();
-                  ns_sleep();
+                  ns_sleep_c();
                   PB_DATA = 0xFFFFFFFF;
                   PI_DATA = 0xFFFFFFFF;
-                  ns_sleep();
+                  ns_sleep_a();
                   PB_DATA = bitmaps7;
                   PI_DATA = bitmaps7;
-                  ns_sleep();
+                  ns_sleep_b();
                   PB_DATA = 0;
                   PI_DATA = 0;
-                  ns_sleep();
+                  ns_sleep_c();
                 }
+
               }
 
             } else {
@@ -613,23 +609,19 @@ void kernel_main(uint32_t r0, uint32_t r1, uint32_t atags)
   asm("mov r8, #0x3;    mcr p15, 0, r8, c3, c0, 0" : : : "r8");
 
   // Enable MMU
-  uint32_t a=0xffffffff;
   asm(
-    "ldr %0, =0x0;"
-    "mcr p15, 0, %0, c1, c0, 0;"
+    "ldr r8, =0x0;"
+    "mcr p15, 0, r8, c1, c0, 0;"
 
-    "MCR p15, 0, %0, c8, C3, 0;"
-    "MCR p15, 0, %0, c8, C5, 0;"
-    "MCR p15, 0, %0, c8, C6, 0;"
-    "MCR p15, 0, %0, c8, C7, 0;"
+    "MCR p15, 0, r8, c8, C3, 0;"
+    "MCR p15, 0, r8, c8, C5, 0;"
+    "MCR p15, 0, r8, c8, C6, 0;"
+    "MCR p15, 0, r8, c8, C7, 0;"
 
+    "ldr r8, =0x4C5107F;"
+    "mcr p15, 0, r8, c1, c0, 0;"
 
-    "ldr %0, =0x4C5187F;"
-    "mcr p15, 0, %0, c1, c0, 0;"
-
-    : "=r"(a) : "r"(a) :);
-  uart_print_uint32(a);
-  uart_print("\r\n");
+    : : : "r8");
   memset(led_data, 0, NUMBER_OF_BANKS*SIZE_OF_BANK*3);
   uart_init();
   uart_print("Booting...\r\n");
